@@ -38,6 +38,22 @@ final class Settings {
         }
     }
 
+    /// When memory counts as "near the limit". Based on macOS memory pressure, not % used,
+    /// because macOS compresses memory and a high "used" figure is often fine.
+    enum MemoryAlert: Int, CaseIterable {
+        case elevated, critical
+
+        var title: String {
+            switch self {
+            case .elevated: "Elevated pressure"
+            case .critical: "Critical pressure"
+            }
+        }
+    }
+
+    static let temperatureThresholds: [Double] = [70, 75, 80, 85, 90]
+    static let cpuThresholds: [Double] = [0.7, 0.8, 0.9, 0.95]
+
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -49,6 +65,10 @@ final class Settings {
             "fahrenheit": false,
             "interval": 2.0,
             "dashboardOpen": true,
+            "alertColors": true,
+            "alertNotifications": false,
+            "temperatureWarning": 85.0,
+            "cpuWarning": 0.9,
         ])
         // Migrate the single "menu bar shows" option from 1.0.
         if let old = defaults.object(forKey: "barMode") as? Int {
@@ -91,6 +111,33 @@ final class Settings {
     var labelStyle: LabelStyle {
         get { LabelStyle(rawValue: defaults.integer(forKey: "labelStyle")) ?? .icons }
         set { defaults.set(newValue.rawValue, forKey: "labelStyle") }
+    }
+
+    var alertColors: Bool {
+        get { defaults.bool(forKey: "alertColors") }
+        set { defaults.set(newValue, forKey: "alertColors") }
+    }
+
+    var alertNotifications: Bool {
+        get { defaults.bool(forKey: "alertNotifications") }
+        set { defaults.set(newValue, forKey: "alertNotifications") }
+    }
+
+    /// °C at which the temperature turns orange.
+    var temperatureWarning: Double {
+        get { defaults.double(forKey: "temperatureWarning") }
+        set { defaults.set(newValue, forKey: "temperatureWarning") }
+    }
+
+    /// 0...1 sustained CPU usage at which CPU turns orange.
+    var cpuWarning: Double {
+        get { defaults.double(forKey: "cpuWarning") }
+        set { defaults.set(newValue, forKey: "cpuWarning") }
+    }
+
+    var memoryAlert: MemoryAlert {
+        get { MemoryAlert(rawValue: defaults.integer(forKey: "memoryAlert")) ?? .elevated }
+        set { defaults.set(newValue.rawValue, forKey: "memoryAlert") }
     }
 
     var fahrenheit: Bool {

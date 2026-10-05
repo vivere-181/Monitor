@@ -1,17 +1,20 @@
 import AppKit
 
 /// Renders the whole menu bar item as a single image, the way Apple's own extras work:
-/// a monochrome template that macOS tints for any menu bar appearance. Only when the
-/// chip runs hot is the image drawn in color, so the temperature can turn orange/red.
+/// a monochrome template that macOS tints for any menu bar appearance. Only when a metric
+/// is near its limit is the image drawn in color, so that metric can turn orange or red.
 enum StatusRenderer {
     private enum Element {
         case symbol(String)
         case label(String)
-        case text(String, reserve: String, color: NSColor?)
+        case text(String, reserve: String)
         case bar(Double)
         case ring(Double)
         case graph([Double])
     }
+
+    /// A metric's elements, drawn in the alert color when there is one.
+    private typealias Segment = (elements: [Element], color: NSColor?)
 
     private static let height: CGFloat = 22
     private static let elementGap: CGFloat = 3
@@ -22,46 +25,55 @@ enum StatusRenderer {
     private static var symbols: [String: NSImage] = [:]
 
     /// Returns the image plus a signature so callers can skip identical updates.
-    static func render(monitor: Monitor, settings: Settings) -> (image: NSImage, signature: String) {
+    static func render(monitor: Monitor, settings: Settings, alerts: AlertState) -> (image: NSImage, signature: String) {
         let s = monitor.snapshot
         let icons = settings.labelStyle == .icons
         let text = settings.labelStyle == .text
-        var segments: [[Element]] = []
-
-        let hotColor: NSColor? = switch s.temps.cpuAvg ?? 0 {
-        case 95...: .systemRed
-        case 85...: .systemOrange
-        default: nil
-        }
+        let colors = settings.alertColors
+        var segments: [Segment] = []
+        var hiddenAlert = AlertLevel.normal
 
         if settings.showTemperature {
             let unit = settings.temperatureStyle == .withUnit
             let value = Format.temperature(s.temps.cpuAvg, fahrenheit: settings.fahrenheit, unit: unit)
             let reserve = (settings.fahrenheit ? "188°" : "88°") + (unit ? "C" : "")
-            segments.append((icons ? [.symbol("thermometer.medium")] : []) + [.text(value, reserve: reserve, color: hotColor)])
+            segments.append(((icons ? [.symbol("thermometer.medium")] : []) + [.text(value, reserve: reserve)],
+                             colors ? alerts.temperature.color : nil))
+        } else {
+            hiddenAlert = max(hiddenAlert, alerts.temperature)
         }
         if settings.showCPU {
-            segments.append((icons ? [.symbol("cpu")] : text ? [.label("CPU")] : [])
-                + [metric(s.cpu.total, history: monitor.cpuHistory, style: settings.cpuStyle)])
+            segments.append(((icons ? [.symbol("cpu")] : text ? [.label("CPU")] : [])
+                + [metric(s.cpu.total, history: monitor.cpuHistory, style: settings.cpuStyle)],
+                colors ? alerts.cpu.color : nil))
+        } else {
+            hiddenAlert = max(hiddenAlert, alerts.cpu)
         }
         if settings.showMemory {
-            segments.append((icons ? [.symbol("memorychip")] : text ? [.label("MEM")] : [])
-                + [metric(s.memory.fraction, history: monitor.memoryHistory, style: settings.memoryStyle)])
+            segments.append(((icons ? [.symbol("memorychip")] : text ? [.label("MEM")] : [])
+                + [metric(s.memory.fraction, history: monitor.memoryHistory, style: settings.memoryStyle)],
+                colors ? alerts.memory.color : nil))
+        } else {
+            hiddenAlert = max(hiddenAlert, alerts.memory)
         }
-        if segments.isEmpty { segments = [[.symbol("thermometer.medium")]] }
+        if segments.isEmpty { segments = [([.symbol("thermometer.medium")], nil)] }
+        // A metric that's near its limit but not shown still gets a small warning sign.
+        if colors, let color = hiddenAlert.color {
+            segments.append(([.symbol("exclamationmark.triangle.fill")], color))
+        }
 
-        let template = hotColor == nil || !settings.showTemperature
-        let signature = "\(template)|\(segments)"
-        let widths = segments.map { $0.map(width) }
+        let template = segments.allSatisfy { $0.color == nil }
+        let signature = "\(segments.map { "\($0.elements)|\($0.color.map(String.init(describing:)) ?? "-")" })"
+        let widths = segments.map { $0.elements.map(width) }
         let total = widths.map { $0.reduce(0, +) + elementGap * CGFloat($0.count - 1) }.reduce(0, +)
             + segmentGap * CGFloat(segments.count - 1)
 
         let image = NSImage(size: NSSize(width: ceil(total), height: height), flipped: true) { _ in
-            let base: NSColor = template ? .black : .labelColor
             var x: CGFloat = 0
             for (i, segment) in segments.enumerated() {
                 if i > 0 { x += segmentGap }
-                for (j, element) in segment.enumerated() {
+                let base: NSColor = segment.color ?? (template ? .black : .labelColor)
+                for (j, element) in segment.elements.enumerated() {
                     if j > 0 { x += elementGap }
                     draw(element, x: x, width: widths[i][j], base: base)
                     x += widths[i][j]
@@ -70,13 +82,13 @@ enum StatusRenderer {
             return true
         }
         image.isTemplate = template
-        image.accessibilityDescription = accessibilityText(snapshot: s, settings: settings)
+        image.accessibilityDescription = accessibilityText(snapshot: s, settings: settings, alerts: alerts)
         return (image, signature)
     }
 
     private static func metric(_ value: Double, history: [Double], style: Settings.MetricStyle) -> Element {
         switch style {
-        case .percentage: .text(Format.percent(value), reserve: "88%", color: nil)
+        case .percentage: .text(Format.percent(value), reserve: "88%")
         case .bar: .bar(value)
         case .ring: .ring(value)
         case .graph: .graph(history)
@@ -100,7 +112,7 @@ enum StatusRenderer {
         switch element {
         case .symbol(let name): symbol(name)?.size.width ?? 0
         case .label(let s): attributed(s, labelFont, .black).size().width
-        case .text(let s, let reserve, _):
+        case .text(let s, let reserve):
             max(attributed(s, valueFont, .black).size().width, attributed(reserve, valueFont, .black).size().width)
         case .bar: 24
         case .ring: 14
@@ -120,8 +132,8 @@ enum StatusRenderer {
             let a = attributed(s, labelFont, base.withAlphaComponent(0.6))
             a.draw(at: NSPoint(x: x, y: midY - a.size().height / 2))
 
-        case .text(let s, _, let color):
-            let a = attributed(s, valueFont, color ?? base)
+        case .text(let s, _):
+            let a = attributed(s, valueFont, base)
             // Right-align inside the reserved width so the item doesn't jiggle as digits change.
             a.draw(at: NSPoint(x: x + width - a.size().width, y: midY - a.size().height / 2))
 
@@ -173,10 +185,11 @@ enum StatusRenderer {
 
     private static func clamp(_ v: Double) -> CGFloat { CGFloat(min(1, max(0, v))) }
 
-    private static func accessibilityText(snapshot s: Snapshot, settings: Settings) -> String {
-        var parts = ["Temperature \(Format.temperature(s.temps.cpuAvg, fahrenheit: settings.fahrenheit, unit: true))"]
-        if settings.showCPU { parts.append("CPU \(Format.percent(s.cpu.total))") }
-        if settings.showMemory { parts.append("Memory \(Format.percent(s.memory.fraction))") }
+    private static func accessibilityText(snapshot s: Snapshot, settings: Settings, alerts: AlertState) -> String {
+        func flag(_ level: AlertLevel) -> String { level == .critical ? " (critical)" : level == .warning ? " (high)" : "" }
+        var parts = ["Temperature \(Format.temperature(s.temps.cpuAvg, fahrenheit: settings.fahrenheit, unit: true))\(flag(alerts.temperature))"]
+        parts.append("CPU \(Format.percent(s.cpu.total))\(flag(alerts.cpu))")
+        parts.append("Memory \(Format.percent(s.memory.fraction))\(flag(alerts.memory))")
         return parts.joined(separator: ", ")
     }
 }

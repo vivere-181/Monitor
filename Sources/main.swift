@@ -3,6 +3,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let settings = Settings()
     private let monitor = Monitor()
+    private let alerts = Alerts()
     private var statusItem: NSStatusItem!
     private var menuView: DashboardView!
     private var window: NSWindow?
@@ -13,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = buildMainMenu()
+        alerts.activate()
+        alerts.onOpen = { [weak self] in self?.showDashboard() }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.imagePosition = .imageOnly
@@ -35,13 +38,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     // MARK: Updates
 
     private func refresh() {
+        alerts.evaluate(monitor.snapshot, settings: settings)
         updateStatusItem()
         if menuOpen { menuView.needsDisplay = true }
         if isWindowOnScreen { windowView?.needsDisplay = true }
     }
 
     private func updateStatusItem(force: Bool = false) {
-        let (image, signature) = StatusRenderer.render(monitor: monitor, settings: settings)
+        let (image, signature) = StatusRenderer.render(monitor: monitor, settings: settings, alerts: alerts.state)
         settingsController?.updatePreview(image)
         guard force || signature != lastSignature else { return }
         lastSignature = signature
@@ -80,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let menu = NSMenu()
         menu.delegate = self
 
-        menuView = DashboardView(monitor: monitor, settings: settings, width: 300)
+        menuView = DashboardView(monitor: monitor, settings: settings, alerts: alerts, width: 300)
         let dashboardItem = NSMenuItem()
         dashboardItem.view = menuView
         menu.addItem(dashboardItem)
@@ -129,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if settingsController == nil {
             settingsController = SettingsWindowController(
                 settings: settings,
+                alerts: alerts,
                 onChange: { [weak self] in self?.settingsChanged() },
                 onClose: { [weak self] in
                     // Release the window entirely once it's closed.
@@ -151,7 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func showDashboard() {
         if window == nil {
             let titlebar: CGFloat = 28
-            let view = DashboardView(monitor: monitor, settings: settings, width: 340, topInset: titlebar)
+            let view = DashboardView(monitor: monitor, settings: settings, alerts: alerts, width: 340, topInset: titlebar)
             let window = NSWindow(contentRect: view.frame,
                                   styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)
@@ -225,7 +230,7 @@ func renderSnapshot(to path: String, dark: Bool) {
     monitor.tickNow()
     Thread.sleep(forTimeInterval: 1)
     monitor.tickNow()
-    let view = DashboardView(monitor: monitor, settings: settings, width: 300)
+    let view = DashboardView(monitor: monitor, settings: settings, alerts: Alerts(), width: 300)
     view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     let container = NSView(frame: view.frame)
     container.wantsLayer = true

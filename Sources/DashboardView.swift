@@ -30,15 +30,17 @@ final class DashboardView: NSView {
 
     private unowned let monitor: Monitor
     private unowned let settings: Settings
+    private unowned let alerts: Alerts
     private let topInset: CGFloat
     private let rows: [Row]
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
 
-    init(monitor: Monitor, settings: Settings, width: CGFloat, topInset: CGFloat = 0) {
+    init(monitor: Monitor, settings: Settings, alerts: Alerts, width: CGFloat, topInset: CGFloat = 0) {
         self.monitor = monitor
         self.settings = settings
+        self.alerts = alerts
         self.topInset = topInset
         var rows: [Row] = []
         if monitor.sensorKinds.contains(.gpu) { rows.append(.gpu) }
@@ -77,7 +79,8 @@ final class DashboardView: NSView {
         var y = topInset + 12
 
         // Temperature
-        let heat = Heat.color(s.temps.cpuAvg)
+        // Past the user's warning threshold, use the alert color so the dashboard agrees with the menu bar.
+        let heat = alerts.state.temperature.color ?? Heat.color(s.temps.cpuAvg)
         text("Temperature", Self.title, .labelColor, x: pad, y: y)
         text(Format.temperature(s.temps.cpuAvg, fahrenheit: f, unit: true), Self.titleValue, heat, x: right, y: y, alignRight: true)
         y += 19
@@ -100,7 +103,7 @@ final class DashboardView: NSView {
 
         // CPU
         text("CPU", Self.title, .labelColor, x: pad, y: y)
-        text(Format.percent(s.cpu.total), Self.titleValue, .secondaryLabelColor, x: right, y: y, alignRight: true)
+        text(Format.percent(s.cpu.total), Self.titleValue, alerts.state.cpu.color ?? .secondaryLabelColor, x: right, y: y, alignRight: true)
         y += 24
         coreBars(NSRect(x: pad, y: y, width: width, height: 22), cpu: s.cpu)
         y += 22 + 8
@@ -114,7 +117,7 @@ final class DashboardView: NSView {
         // Memory
         let m = s.memory
         text("Memory", Self.title, .labelColor, x: pad, y: y)
-        text("\(Format.gigabytes(m.used)) of \(Format.gigabytes(m.total)) GB", Self.titleValue, .secondaryLabelColor, x: right, y: y, alignRight: true)
+        text("\(Format.gigabytes(m.used)) of \(Format.gigabytes(m.total)) GB", Self.titleValue, alerts.state.memory.color ?? .secondaryLabelColor, x: right, y: y, alignRight: true)
         y += 24
         bar(NSRect(x: pad, y: y, width: width, height: 6),
             segments: [(m.app / m.total, .systemBlue), (m.wired / m.total, .systemOrange), (m.compressed / m.total, .systemPurple)])

@@ -80,13 +80,14 @@ enum MemoryStats {
             usage.wired = Double(stats.wire_count) * page
             usage.compressed = Double(stats.compressor_page_count) * page
         }
-        guard includeDetails else { return usage }
-
+        // Pressure drives alerts, so it's read every sample (one sysctl).
         var level: Int32 = 1
         var size = MemoryLayout<Int32>.size
         if sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &size, nil, 0) == 0 {
             usage.pressure = MemoryPressure(rawValue: Int(level)) ?? .normal
         }
+        guard includeDetails else { return usage }
+
         var swap = xsw_usage()
         size = MemoryLayout<xsw_usage>.size
         if sysctlbyname("vm.swapusage", &swap, &size, nil, 0) == 0 {
@@ -107,7 +108,7 @@ struct Snapshot {
     var thermalState: ProcessInfo.ThermalState = .nominal
 }
 
-/// Owns the single sampling timer. Expensive-ish extras (fans, swap, pressure, load)
+/// Owns the single sampling timer. Expensive-ish extras (fans, swap, load)
 /// are only read while a detail view is actually on screen.
 /// Sensor reads block on IPC to hidd/SMC, so they run on a background queue and
 /// results are published back on the main thread.

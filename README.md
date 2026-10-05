@@ -7,6 +7,10 @@ A tiny native macOS app for Apple Silicon that shows the **CPU temperature** in 
   - **CPU and memory styles:** Percentage, Bar (battery-style capsule), Ring (gauge) or Graph (mini usage history).
   - **Temperature style:** `48°` or `48°C`. It turns orange at 85 °C and red at 95 °C.
 - **Dropdown:** laid out like Apple's Battery and Wi‑Fi menus. The Temperature section shows the thermal state, a history graph, and SSD, battery, GPU and fan rows. The CPU section has per-core bars (Performance and Efficiency cores) and the load average. The Memory section shows App/Wired/Compressed memory, pressure and swap. It also has Open Dashboard, Activity Monitor, **Monitor Settings…** (⌘,) and Quit.
+- **Alerts:** each metric turns orange near its limit and red when critical, in the menu bar and the dropdown. A metric you don't show in the menu bar gets a small coloured ⚠ instead. Optional notifications fire once when a metric gets worse, at most every 10 minutes per metric.
+  - **Temperature:** warning at 70–90 °C (default 85 °C). Critical at 95 °C, or when macOS starts slowing the chip down to cool it.
+  - **CPU:** warning at 70–95% (default 90%), averaged over 30 seconds so short bursts don't count. Critical when the CPU stays above 98%.
+  - **Memory:** based on macOS memory pressure rather than % used, since macOS compresses memory and a high "used" figure is often fine. Warning at elevated pressure (or only at critical), red at critical pressure.
 - **Dashboard window:** the same view, as a regular window.
 - **Settings window:** a System Settings-style form with a live preview of the menu bar item. It also holds the temperature unit, update interval and Launch at Login.
 

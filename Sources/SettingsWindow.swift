@@ -20,11 +20,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let unitControl = NSSegmentedControl(labels: ["Celsius", "Fahrenheit"], trackingMode: .selectOne, target: nil, action: nil)
     private let intervalPopup = NSPopUpButton()
     private let loginSwitch = NSSwitch()
+    private let alertColorsSwitch = NSSwitch()
+    private let notificationsSwitch = NSSwitch()
+    private let testButton = NSButton(title: "Send Test", target: nil, action: nil)
+    private let temperatureWarningPopup = NSPopUpButton()
+    private let cpuWarningPopup = NSPopUpButton()
+    private let memoryAlertPopup = NSPopUpButton()
+    private let alerts: Alerts
 
     private static let intervals = [1, 2, 5, 10]
 
-    init(settings: Settings, onChange: @escaping () -> Void, onClose: @escaping () -> Void) {
+    init(settings: Settings, alerts: Alerts, onChange: @escaping () -> Void, onClose: @escaping () -> Void) {
         self.settings = settings
+        self.alerts = alerts
         self.onChange = onChange
         self.onClose = onClose
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 400),
@@ -53,13 +61,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             (memoryStylePopup, Settings.MetricStyle.allCases.map(\.title)),
             (labelPopup, Settings.LabelStyle.allCases.map(\.title)),
             (intervalPopup, Self.intervals.map { $0 == 1 ? "Every second" : "Every \($0) seconds" }),
+            (cpuWarningPopup, Settings.cpuThresholds.map(Format.percent)),
+            (memoryAlertPopup, Settings.MemoryAlert.allCases.map(\.title)),
+            (temperatureWarningPopup, Settings.temperatureThresholds.map { _ in "" }), // titles depend on the unit
         ] {
             popup.addItems(withTitles: titles)
         }
         temperatureStylePopup.addItems(withTitles: ["", ""]) // titles depend on the unit; set in syncControls()
 
-        for control in [temperatureSwitch, cpuSwitch, memorySwitch, loginSwitch] as [NSControl] { control.controlSize = .small }
-        for control in [temperatureStylePopup, cpuStylePopup, memoryStylePopup, labelPopup, intervalPopup] { control.controlSize = .small; control.font = .systemFont(ofSize: 11) }
+        for control in [temperatureSwitch, cpuSwitch, memorySwitch, loginSwitch, alertColorsSwitch, notificationsSwitch, testButton] as [NSControl] { control.controlSize = .small }
+        testButton.font = .systemFont(ofSize: 11)
+        for control in [temperatureStylePopup, cpuStylePopup, memoryStylePopup, labelPopup, intervalPopup,
+                        temperatureWarningPopup, cpuWarningPopup, memoryAlertPopup] { control.controlSize = .small; control.font = .systemFont(ofSize: 11) }
         unitControl.controlSize = .small
         for popup in [temperatureStylePopup, cpuStylePopup, memoryStylePopup] {
             popup.widthAnchor.constraint(equalToConstant: 118).isActive = true
@@ -70,6 +83,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             (temperatureStylePopup, #selector(changed)), (cpuStylePopup, #selector(changed)), (memoryStylePopup, #selector(changed)),
             (labelPopup, #selector(changed)), (unitControl, #selector(changed)), (intervalPopup, #selector(changed)),
             (loginSwitch, #selector(toggleLogin)),
+            (alertColorsSwitch, #selector(changed)), (temperatureWarningPopup, #selector(changed)),
+            (cpuWarningPopup, #selector(changed)), (memoryAlertPopup, #selector(changed)),
+            (notificationsSwitch, #selector(toggleNotifications)), (testButton, #selector(sendTest)),
         ]
         for (control, action) in bindings {
             control.target = self
@@ -89,14 +105,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             row("CPU", [cpuStylePopup, cpuSwitch]),
             row("Memory", [memoryStylePopup, memorySwitch]),
             row("Labels", [labelPopup]),
-        ], footer: "Bar, Ring and Graph show usage as a small gauge instead of a number. The temperature turns orange at 85 °C and red at 95 °C.").views
+        ], footer: "Bar, Ring and Graph show usage as a small gauge instead of a number.").views
+        let alertSection = section("Alerts", [
+            row("Color menu bar near limits", [alertColorsSwitch]),
+            row("Notifications", [testButton, notificationsSwitch]),
+            row("Temperature warning at", [temperatureWarningPopup]),
+            row("CPU warning at", [cpuWarningPopup]),
+            row("Memory warning at", [memoryAlertPopup]),
+        ], footer: "Orange means a metric passed your warning level. Red means critical: \(Format.temperature(Alerts.criticalTemperature, fahrenheit: settings.fahrenheit, unit: true)) or macOS slowing the chip to cool it, CPU near 100%, or critical memory pressure. CPU is averaged over 30 seconds, so short bursts don't count.").views
         let general = section("General", [
             row("Temperature unit", [unitControl]),
             row("Update", [intervalPopup]),
             row("Launch at login", [loginSwitch]),
         ], footer: "Less frequent updates use slightly less energy.").views
 
-        for view in menuBar + [spacer(14)] + general {
+        for view in menuBar + [spacer(14)] + alertSection + [spacer(14)] + general {
             stack.addArrangedSubview(view)
             if view is GroupBox { view.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true }
         }
@@ -172,6 +195,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let unit = settings.fahrenheit ? "F" : "C"
         temperatureStylePopup.item(at: 0)?.title = "48°"
         temperatureStylePopup.item(at: 1)?.title = "48°\(unit)"
+        for (i, celsius) in Settings.temperatureThresholds.enumerated() {
+            temperatureWarningPopup.item(at: i)?.title = Format.temperature(celsius, fahrenheit: settings.fahrenheit, unit: true)
+        }
+        temperatureWarningPopup.selectItem(at: Settings.temperatureThresholds.firstIndex(of: settings.temperatureWarning) ?? 3)
+        cpuWarningPopup.selectItem(at: Settings.cpuThresholds.firstIndex(of: settings.cpuWarning) ?? 2)
+        memoryAlertPopup.selectItem(at: settings.memoryAlert.rawValue)
+        alertColorsSwitch.state = settings.alertColors ? .on : .off
+        notificationsSwitch.state = settings.alertNotifications ? .on : .off
+        testButton.isEnabled = settings.alertNotifications
         temperatureStylePopup.selectItem(at: settings.temperatureStyle.rawValue)
         cpuStylePopup.selectItem(at: settings.cpuStyle.rawValue)
         memoryStylePopup.selectItem(at: settings.memoryStyle.rawValue)
@@ -196,8 +228,43 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         settings.labelStyle = Settings.LabelStyle(rawValue: labelPopup.indexOfSelectedItem) ?? .icons
         settings.fahrenheit = unitControl.selectedSegment == 1
         settings.interval = TimeInterval(Self.intervals[max(0, intervalPopup.indexOfSelectedItem)])
+        settings.alertColors = alertColorsSwitch.state == .on
+        settings.temperatureWarning = Settings.temperatureThresholds[max(0, temperatureWarningPopup.indexOfSelectedItem)]
+        settings.cpuWarning = Settings.cpuThresholds[max(0, cpuWarningPopup.indexOfSelectedItem)]
+        settings.memoryAlert = Settings.MemoryAlert(rawValue: memoryAlertPopup.indexOfSelectedItem) ?? .elevated
         syncControls()
         onChange()
+    }
+
+    @objc private func toggleNotifications() {
+        guard notificationsSwitch.state == .on else {
+            settings.alertNotifications = false
+            syncControls()
+            return
+        }
+        alerts.requestAuthorization { [weak self] granted in
+            guard let self else { return }
+            settings.alertNotifications = granted
+            syncControls()
+            if !granted { showNotificationsBlocked() }
+        }
+    }
+
+    @objc private func sendTest() {
+        alerts.sendTest()
+    }
+
+    private func showNotificationsBlocked() {
+        let alert = NSAlert()
+        alert.messageText = "Notifications are off for Monitor"
+        alert.informativeText = "Allow notifications for Monitor in System Settings › Notifications, then turn this on again."
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn,
+                  let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func toggleLogin() {
