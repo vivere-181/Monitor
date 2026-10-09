@@ -13,6 +13,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let temperatureSwitch = NSSwitch()
     private let cpuSwitch = NSSwitch()
     private let memorySwitch = NSSwitch()
+    private let gpuSwitch = NSSwitch()
+    private let gpuStylePopup = NSPopUpButton()
     private let temperatureStylePopup = NSPopUpButton()
     private let cpuStylePopup = NSPopUpButton()
     private let memoryStylePopup = NSPopUpButton()
@@ -59,6 +61,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         for (popup, titles) in [
             (cpuStylePopup, Settings.MetricStyle.allCases.map(\.title)),
             (memoryStylePopup, Settings.MetricStyle.allCases.map(\.title)),
+            (gpuStylePopup, Settings.MetricStyle.allCases.map(\.title)),
             (labelPopup, Settings.LabelStyle.allCases.map(\.title)),
             (intervalPopup, Self.intervals.map { $0 == 1 ? "Every second" : "Every \($0) seconds" }),
             (cpuWarningPopup, Settings.cpuThresholds.map(Format.percent)),
@@ -69,17 +72,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
         temperatureStylePopup.addItems(withTitles: ["", ""]) // titles depend on the unit; set in syncControls()
 
-        for control in [temperatureSwitch, cpuSwitch, memorySwitch, loginSwitch, alertColorsSwitch, notificationsSwitch, testButton] as [NSControl] { control.controlSize = .small }
+        for control in [temperatureSwitch, cpuSwitch, memorySwitch, gpuSwitch, loginSwitch, alertColorsSwitch, notificationsSwitch, testButton] as [NSControl] { control.controlSize = .small }
         testButton.font = .systemFont(ofSize: 11)
-        for control in [temperatureStylePopup, cpuStylePopup, memoryStylePopup, labelPopup, intervalPopup,
+        for control in [temperatureStylePopup, cpuStylePopup, memoryStylePopup, gpuStylePopup, labelPopup, intervalPopup,
                         temperatureWarningPopup, cpuWarningPopup, memoryAlertPopup] { control.controlSize = .small; control.font = .systemFont(ofSize: 11) }
         unitControl.controlSize = .small
-        for popup in [temperatureStylePopup, cpuStylePopup, memoryStylePopup] {
+        for popup in [temperatureStylePopup, cpuStylePopup, memoryStylePopup, gpuStylePopup] {
             popup.widthAnchor.constraint(equalToConstant: 118).isActive = true
         }
 
         let bindings: [(NSControl, Selector)] = [
             (temperatureSwitch, #selector(changed)), (cpuSwitch, #selector(changed)), (memorySwitch, #selector(changed)),
+            (gpuSwitch, #selector(changed)), (gpuStylePopup, #selector(changed)),
             (temperatureStylePopup, #selector(changed)), (cpuStylePopup, #selector(changed)), (memoryStylePopup, #selector(changed)),
             (labelPopup, #selector(changed)), (unitControl, #selector(changed)), (intervalPopup, #selector(changed)),
             (loginSwitch, #selector(toggleLogin)),
@@ -103,6 +107,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             row("Preview", [preview]),
             row("Temperature", [temperatureStylePopup, temperatureSwitch]),
             row("CPU", [cpuStylePopup, cpuSwitch]),
+            row("GPU", [gpuStylePopup, gpuSwitch]),
             row("Memory", [memoryStylePopup, memorySwitch]),
             row("Labels", [labelPopup]),
         ], footer: "Bar, Ring and Graph show usage as a small gauge instead of a number.").views
@@ -192,6 +197,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         temperatureSwitch.state = settings.showTemperature ? .on : .off
         cpuSwitch.state = settings.showCPU ? .on : .off
         memorySwitch.state = settings.showMemory ? .on : .off
+        gpuSwitch.state = settings.showGPU ? .on : .off
+        gpuStylePopup.selectItem(at: settings.gpuStyle.rawValue)
+        gpuStylePopup.isEnabled = settings.showGPU
         let unit = settings.fahrenheit ? "F" : "C"
         temperatureStylePopup.item(at: 0)?.title = "48°"
         temperatureStylePopup.item(at: 1)?.title = "48°\(unit)"
@@ -215,13 +223,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         temperatureStylePopup.isEnabled = settings.showTemperature
         cpuStylePopup.isEnabled = settings.showCPU
         memoryStylePopup.isEnabled = settings.showMemory
-        labelPopup.isEnabled = settings.showCPU || settings.showMemory || settings.showTemperature
+        labelPopup.isEnabled = settings.showCPU || settings.showMemory || settings.showGPU || settings.showTemperature
     }
 
     @objc private func changed() {
         settings.showTemperature = temperatureSwitch.state == .on
         settings.showCPU = cpuSwitch.state == .on
         settings.showMemory = memorySwitch.state == .on
+        settings.showGPU = gpuSwitch.state == .on
+        settings.gpuStyle = Settings.MetricStyle(rawValue: gpuStylePopup.indexOfSelectedItem) ?? .percentage
         settings.temperatureStyle = Settings.TemperatureStyle(rawValue: temperatureStylePopup.indexOfSelectedItem) ?? .degrees
         settings.cpuStyle = Settings.MetricStyle(rawValue: cpuStylePopup.indexOfSelectedItem) ?? .percentage
         settings.memoryStyle = Settings.MetricStyle(rawValue: memoryStylePopup.indexOfSelectedItem) ?? .percentage

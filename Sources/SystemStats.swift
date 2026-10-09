@@ -103,6 +103,7 @@ struct Snapshot {
     var temps = Temperatures()
     var cpu = CPUUsage()
     var memory = MemoryUsage()
+    var gpu = GPUUsage()
     var fans: [Fan] = []
     var load: [Double] = [0, 0, 0]
     var thermalState: ProcessInfo.ThermalState = .nominal
@@ -120,15 +121,20 @@ final class Monitor {
     private(set) var history: [Double] = []         // CPU temperature, °C
     private(set) var cpuHistory: [Double] = []      // 0...1, for the menu bar graph style
     private(set) var memoryHistory: [Double] = []   // 0...1
+    private(set) var gpuHistory: [Double] = []      // 0...1
+    private(set) var gpuLongHistory: [Double] = []  // 0...1, same span as `history`, for the dashboard graph
 
     /// Fixed at launch, so layouts don't jump around between samples.
     let sensorKinds: Set<ThermalSensors.Kind>
     let fanCount: Int
+    let gpuCoreCount: Int
+    let hasGPUTemperature: Bool
 
     // Only touched on `queue`.
     private let thermal = ThermalSensors()
     private let cpuStats = CPUStats()
     private let smc = SMC()
+    private let gpuStats = GPUStats()
 
     private let queue = DispatchQueue(label: "monitor.sampling", qos: .utility)
     private var sampling = false
@@ -137,6 +143,8 @@ final class Monitor {
     init() {
         sensorKinds = thermal.kinds
         fanCount = smc?.fanCount ?? 0
+        gpuCoreCount = gpuStats.coreCount
+        hasGPUTemperature = smc?.hasGPUTemperature == true || sensorKinds.contains(.gpu)
     }
 
     var onUpdate: (() -> Void)?
@@ -189,9 +197,15 @@ final class Monitor {
         s.temps = thermal.read()
         s.cpu = cpuStats.sample()
         s.memory = MemoryStats.sample(includeDetails: detail)
+        s.gpu = gpuStats.sample()
         s.thermalState = ProcessInfo.processInfo.thermalState
         if detail {
             s.fans = smc?.fans() ?? []
+            if let gpu = smc?.gpuTemperature() {
+                (s.gpu.temperature, s.gpu.hottest) = (gpu.average, gpu.hottest)
+            } else {
+                (s.gpu.temperature, s.gpu.hottest) = (s.temps.gpu, s.temps.gpu) // M1 labels its GPU sensors in HID
+            }
             var load = [0.0, 0.0, 0.0]
             if getloadavg(&load, 3) == 3 { s.load = load }
         }
@@ -203,6 +217,8 @@ final class Monitor {
         if let t = next.temps.cpuAvg { Self.append(t, to: &history, limit: Self.historyLength) }
         Self.append(next.cpu.total, to: &cpuHistory, limit: Self.miniHistoryLength)
         Self.append(next.memory.fraction, to: &memoryHistory, limit: Self.miniHistoryLength)
+        Self.append(next.gpu.utilization, to: &gpuHistory, limit: Self.miniHistoryLength)
+        Self.append(next.gpu.utilization, to: &gpuLongHistory, limit: Self.historyLength)
         onUpdate?()
     }
 

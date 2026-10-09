@@ -62,6 +62,7 @@ final class Settings {
             "showTemperature": true,
             "showCPU": false,
             "showMemory": false,
+            "showGPU": false,
             "fahrenheit": false,
             "interval": 2.0,
             "dashboardOpen": true,
@@ -91,6 +92,16 @@ final class Settings {
     var showMemory: Bool {
         get { defaults.bool(forKey: "showMemory") }
         set { defaults.set(newValue, forKey: "showMemory") }
+    }
+
+    var showGPU: Bool {
+        get { defaults.bool(forKey: "showGPU") }
+        set { defaults.set(newValue, forKey: "showGPU") }
+    }
+
+    var gpuStyle: MetricStyle {
+        get { MetricStyle(rawValue: defaults.integer(forKey: "gpuStyle")) ?? .percentage }
+        set { defaults.set(newValue.rawValue, forKey: "gpuStyle") }
     }
 
     var temperatureStyle: TemperatureStyle {

@@ -230,7 +230,8 @@ func renderSnapshot(to path: String, dark: Bool) {
     monitor.tickNow()
     Thread.sleep(forTimeInterval: 1)
     monitor.tickNow()
-    let view = DashboardView(monitor: monitor, settings: settings, alerts: Alerts(), width: 300)
+    let alerts = Alerts() // the view holds it unowned, so keep it alive here
+    let view = DashboardView(monitor: monitor, settings: settings, alerts: alerts, width: 300)
     view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     let container = NSView(frame: view.frame)
     container.wantsLayer = true

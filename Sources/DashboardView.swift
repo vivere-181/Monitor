@@ -26,7 +26,7 @@ enum Heat {
 /// value on the right, circular glyph rows, separators between sections.
 /// Drawn in a single pass with no subviews or layers, so it stays cheap in the menu and the window.
 final class DashboardView: NSView {
-    private enum Row { case gpu, ssd, battery, fans, hottest }
+    private enum Row { case ssd, battery, fans, hottest }
 
     private unowned let monitor: Monitor
     private unowned let settings: Settings
@@ -43,7 +43,6 @@ final class DashboardView: NSView {
         self.alerts = alerts
         self.topInset = topInset
         var rows: [Row] = []
-        if monitor.sensorKinds.contains(.gpu) { rows.append(.gpu) }
         if monitor.sensorKinds.contains(.ssd) { rows.append(.ssd) }
         if monitor.sensorKinds.contains(.battery) { rows.append(.battery) }
         if monitor.fanCount > 0 { rows.append(.fans) }
@@ -58,7 +57,10 @@ final class DashboardView: NSView {
     private static let pad: CGFloat = 14
     private static let rowHeight: CGFloat = 32
     private static let graphHeight: CGFloat = 50
-    private static let baseHeight: CGFloat = 12 + 19 + 25 + graphHeight + 10 + 6 + 13 + 24 + 22 + 8 + 14 + 6 + 13 + 24 + 6 + 10 + 14 + 4 + 14 + 12
+    private static let sectionHeight: CGFloat = 24 + 22 + 8 + 14 + 6 + 13 // header, bars/graph, caption, separator
+    private static let baseHeight: CGFloat = 12 + 19 + 25 + graphHeight + 10 + 6 + 13 // temperature
+        + sectionHeight * 2 // CPU, GPU
+        + 24 + 6 + 10 + 14 + 4 + 14 + 12 // memory
 
     private static let title = NSFont.systemFont(ofSize: 13, weight: .bold)
     private static let titleValue = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
@@ -114,6 +116,23 @@ final class DashboardView: NSView {
         separator(y: y)
         y += 13
 
+        // GPU
+        text("GPU", Self.title, .labelColor, x: pad, y: y)
+        text(Format.percent(s.gpu.utilization), Self.titleValue, .secondaryLabelColor, x: right, y: y, alignRight: true)
+        y += 24
+        usageGraph(NSRect(x: pad, y: y, width: width, height: 22), values: monitor.gpuLongHistory, color: .systemIndigo)
+        y += 22 + 8
+        let gpuCores = monitor.gpuCoreCount > 0 ? "\(monitor.gpuCoreCount) Cores · " : ""
+        text("\(gpuCores)\(Format.gigabytes(s.gpu.memoryInUse)) GB memory", Self.small, .secondaryLabelColor, x: pad, y: y)
+        if monitor.hasGPUTemperature {
+            let value = Format.temperature(s.gpu.temperature, fahrenheit: f)
+            let vw = text(value, Self.small, Heat.color(s.gpu.temperature), x: right, y: y, alignRight: true)
+            text("Temperature ", Self.small, .secondaryLabelColor, x: right - vw, y: y, alignRight: true)
+        }
+        y += 14 + 6
+        separator(y: y)
+        y += 13
+
         // Memory
         let m = s.memory
         text("Memory", Self.title, .labelColor, x: pad, y: y)
@@ -145,8 +164,6 @@ final class DashboardView: NSView {
         let symbol: String, title: String, value: String, circle: NSColor
         var glyphColor = NSColor.white
         switch row {
-        case .gpu:
-            (symbol, title, value, circle) = ("cube", "GPU", Format.temperature(s.temps.gpu, fahrenheit: f), Heat.color(s.temps.gpu))
         case .ssd:
             (symbol, title, value, circle) = ("internaldrive", "SSD", Format.temperature(s.temps.ssd, fahrenheit: f), Heat.color(s.temps.ssd))
         case .battery:
@@ -233,6 +250,34 @@ final class DashboardView: NSView {
             NSBezierPath(roundedRect: NSRect(x: x, y: column.maxY - h, width: barWidth, height: h), xRadius: 2.5, yRadius: 2.5).fill()
             x += barWidth + gap
         }
+    }
+
+    /// Filled 0–100% history, newest on the right, on the same rounded track as the core bars.
+    private func usageGraph(_ rect: NSRect, values: [Double], color: NSColor) {
+        let track = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
+        NSColor.labelColor.withAlphaComponent(0.08).setFill()
+        track.fill()
+        guard values.count >= 2 else { return }
+        let step = rect.width / CGFloat(Monitor.historyLength - 1)
+        let startX = rect.maxX - step * CGFloat(values.count - 1)
+        let line = NSBezierPath()
+        for (i, v) in values.enumerated() {
+            let p = NSPoint(x: startX + step * CGFloat(i), y: rect.maxY - 1 - (rect.height - 2) * CGFloat(min(1, max(0, v))))
+            i == 0 ? line.move(to: p) : line.line(to: p)
+        }
+        NSGraphicsContext.saveGraphicsState()
+        track.addClip()
+        let fill = line.copy() as! NSBezierPath
+        fill.line(to: NSPoint(x: rect.maxX, y: rect.maxY))
+        fill.line(to: NSPoint(x: startX, y: rect.maxY))
+        fill.close()
+        color.withAlphaComponent(0.3).setFill()
+        fill.fill()
+        color.setStroke()
+        line.lineWidth = 1.25
+        line.lineJoinStyle = .round
+        line.stroke()
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     private func sparkline(_ rect: NSRect, color: NSColor) {

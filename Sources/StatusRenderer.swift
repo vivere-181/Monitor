@@ -49,6 +49,10 @@ enum StatusRenderer {
         } else {
             hiddenAlert = max(hiddenAlert, alerts.cpu)
         }
+        if settings.showGPU {
+            segments.append(((icons ? [.symbol("cube")] : text ? [.label("GPU")] : [])
+                + [metric(s.gpu.utilization, history: monitor.gpuHistory, style: settings.gpuStyle)], nil))
+        }
         if settings.showMemory {
             segments.append(((icons ? [.symbol("memorychip")] : text ? [.label("MEM")] : [])
                 + [metric(s.memory.fraction, history: monitor.memoryHistory, style: settings.memoryStyle)],
@@ -189,6 +193,7 @@ enum StatusRenderer {
         func flag(_ level: AlertLevel) -> String { level == .critical ? " (critical)" : level == .warning ? " (high)" : "" }
         var parts = ["Temperature \(Format.temperature(s.temps.cpuAvg, fahrenheit: settings.fahrenheit, unit: true))\(flag(alerts.temperature))"]
         parts.append("CPU \(Format.percent(s.cpu.total))\(flag(alerts.cpu))")
+        if settings.showGPU { parts.append("GPU \(Format.percent(s.gpu.utilization))") }
         parts.append("Memory \(Format.percent(s.memory.fraction))\(flag(alerts.memory))")
         return parts.joined(separator: ", ")
     }
